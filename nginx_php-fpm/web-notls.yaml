@@ -1,0 +1,76 @@
+---
+
+  #
+  # NGINX + php-fpm
+  #
+
+- name: Configure webserver with nginx
+  hosts: webservers
+  sudo: True
+  vars:
+    nginx_user: nginx
+    nginx_worker_connections: 1024
+    nginx_root_location: /var/www/nginx
+    nginx_log_path: /var/log/nginx
+
+  tasks:
+    - name: Creating dirs
+      file: path="{{ item }}" state=directory owner="{{ nginx_user }}"
+      with_items:
+        - "{{ nginx_root_location }}/html"
+        - "{{ nginx_log_path }}"
+
+    - name: Set permissions for nginx_root_location
+      file: path={{ nginx_root_location }} mode=0755 recurse=yes
+
+    - name: Adding nginx repo
+      yum_repository:
+        name: epel
+        description: EPEL YUM repo
+        baseurl: http://download.fedoraproject.org/pub/epel/$releasever/$basearch/
+        gpgcheck: no
+
+    - name: Installing system tools
+      yum: name={{ item }} update_cache=yes
+      with_items:
+        - telnet
+        - net-tools
+        - bind-utils
+        - libselinux-python
+        - nano
+
+    - name: SELinux disable
+      selinux: state=disabled
+
+    - name: Remove httpd
+      yum: name=httpd state=absent
+
+    - name: install nginx, php & php-fpm
+      yum: name={{ item }}
+      with_items:
+        - nginx
+        - php
+        - php-fpm
+        - php-common
+
+    - name: nginx config file
+      template: src=templates/nginx/nginx.conf.j2 dest=/etc/nginx/nginx.conf
+        mode=0644
+
+    - name: copy index.html
+      template: src=templates/static/index.html.j2 dest={{ nginx_root_location }}/html/index.html
+        owner="{{ nginx_user }}"
+        mode=0644
+
+    - name: php-fpm config
+      template: src=templates/php-fpm/www.conf.j2 dest=/etc/php-fpm.d/www.conf
+
+    - name: Set dateTime zone for php
+      #shell: sed -i 's/;date.timezone =/date.timezone = "Europe\/Kyiv"/g' /etc/php.ini
+      replace: dest=/etc/php.ini regexp='(;date.timezone =)' replace='date.timezone = "Europe/Kyiv"'
+
+    - name: Starting nginx & php-fpm
+      service: name={{ item }} state=restarted enabled=yes
+      with_items:
+        - nginx
+        - php-fpm
